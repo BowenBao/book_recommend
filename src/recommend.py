@@ -6,12 +6,12 @@ from scipy.stats.stats import pearsonr
 def corr_sim(i, j, item_to_review, review):
     # find user who both rated the two items.
     def get_user_id(idx):
-        return [review[reviewId][2] for reviewId in item_to_review[idx]]
+        return set([review[reviewId][2] for reviewId in item_to_review[idx]])
 
     user_id_i = get_user_id(i)
     user_id_j = get_user_id(j)
     # might have duplicated ratings.
-    user_id_common = list(set([id for id in user_id_i if id in user_id_j]))
+    user_id_common = set([id for id in user_id_i if id in user_id_j])
 
     if len(user_id_common) == 0:
         return 0
@@ -74,49 +74,91 @@ def corr_sim(i, j, item_to_review, review):
 
     return nomi / (denomi_i * denomi_j)
 
+def compute_corr_sim(book_to_review, review):
+    sim = {}
+    book_id = [id for id, review_arr in book_to_review.items()]
+    print('Total book ids: %d' % len(book_id))
+    try:
+        sim_file = open('../data/corr_sim.txt', 'r')
+        print('Read sim from file')
+        idx = 0
+        for line in sim_file:
+            vals = line.strip().split(' ')
+            #print('vals len %d' % len(vals))
+            id = book_id[idx]
+            if id not in sim:
+                sim[id] = {}
+            for idx_j, val in enumerate(vals):
+                sim[id][book_id[idx_j]] = float(val)
+            idx += 1
+        sim_file.close()
+    except:
+        print('Sim file not exist, computing...')
+        input('Pause')
+        for i in book_id:
+            if i % 100 == 0:
+                print('Complete %d books. ' % i)
+            for j in book_id:
+                if j % 500 == 0:
+                    print('Complete %d books with %d. ' % (j, i))
+                if i == j:
+                    continue
+                if i not in sim:
+                    sim[i] = {}
+                sim[i][j] = corr_sim(i, j, book_to_review, review)
+            #print(sim[i])
+            #input('pause')
+
+        sim_file = open('../data/corr_sim.txt', 'w')
+        for i in book_id:
+            for j in book_id:
+                if i == j:
+                    sim_file.write('0 ')
+                else:
+                    sim_file.write('%f ' % sim[i][j])
+            sim_file.write('\n')
+        sim_file.close()
+
+    print('Finish similarity computation.')
+    return sim
 
 """ Item based CF
 """
 def collab_filter(user_to_review, book_to_review, review):
     #compute sim
-    sim = {}
-    book_id = [id for id, review_arr in book_to_review.items()]
-    for i in book_id:
-        if i % 100 == 0:
-            print('Complete %d books. ' % i)
-        for j in book_id:
-            if j % 100 == 0:
-                print('Complete %d books with %d. ' % (j, i))
-            if i == j:
-                continue
-            if i not in sim:
-                sim[i] = {}
-            sim[i][j] = corr_sim(i, j, book_to_review, review)
-
-    print('Finish similarity computation.')
+    sim = compute_corr_sim(book_to_review, review)
 
     # fill up rating
     rating = {}
+    idx_i = idx_u = 0
     for user_id, user_review_arr in user_to_review.items():
+        idx_i = 0
         for item_id, item_review_arr in book_to_review.items():
-            book_id = [review[id][1] for id in user_review_arr]
-            book_id_rated = [(review[id][1], review[id][0]) for id in user_review_arr]
+            book_id = set([review[id][1] for id in user_review_arr])
+            book_id_rated = set([(review[id][1], review[id][0]) for id in user_review_arr])
 
             if user_id not in rating:
                 rating[user_id] = {}
             if item_id in book_id:
                 # already rated
-                rating[user_id][item_id] = [x[1] for x in book_id_rated if x == item_id][0]
+                rating[user_id][item_id] = [x[1] for x in book_id_rated if x[0] == item_id][0]
                 continue
             # check how users rate other books
             pred_rate = 0
-            for book_id, rating in book_id_rated:
-                pred_rate += sim[item_id][book_id] * rating
-            pred_rate /= sum([sim[item_id][id] for id in book_id])
-            rating[user_id][item_id] = pred_rate
+            for id, rate in book_id_rated:
+                pred_rate += sim[item_id][id] * rate
+            deno = sum([math.fabs(sim[item_id][id]) for id in book_id])
+            pred_rate = (pred_rate / deno) if deno != 0 else 0
+            if pred_rate != 0:
+                rating[user_id][item_id] = pred_rate
 
-            print('user %d item %d rating %f' % (user_id, item_id, pred_rate))
-            input('pause')
+            #print('user %d item %d rating %f' % (user_id, item_id, pred_rate))
+            #input('pause')
+
+            idx_i += 1
+        idx_u += 1
+        if idx_u % 500 == 0:
+            print("Complete user %d." % idx_u)
 
 if __name__ == '__main__':
     db = Reader()
