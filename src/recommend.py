@@ -122,13 +122,45 @@ def compute_corr_sim(book_to_review, review):
     print('Finish similarity computation.')
     return sim
 
+def compute_pred(user_id, item_id, user_to_review, book_to_review, review, sim):
+    rating = 0
+    if user_id not in user_to_review:
+        print('user_id %d not found in train.' % user_id)
+        return rating
+
+    user_review_arr = set(user_to_review[user_id])
+
+    book_id = set([review[id][1] for id in user_review_arr])
+    book_id_rated = set([(review[id][1], review[id][0]) for id in user_review_arr])
+
+    if item_id in book_id:
+        # already rated
+        rating = [x[1] for x in book_id_rated if x[0] == item_id][0]
+    # check how users rate other books
+    for id, rate in book_id_rated:
+        rating += sim[item_id][id] * rate
+    deno = sum([math.fabs(sim[item_id][id]) for id in book_id])
+    rating = (rating / deno) if deno != 0 else 0
+    return rating
+
 """ Item based CF
 """
-def collab_filter(user_to_review, book_to_review, review):
+def collab_filter(user_to_review, book_to_review, review, user_to_review_test, book_to_review_test):
     #compute sim
     sim = compute_corr_sim(book_to_review, review)
 
+    for user_id, user_review_arr in user_to_review_test.items():
+        for review_id in user_review_arr:
+            item_id = review[review_id][1]
+            rating_true = review[review_id][0]
+
+            rating_pred = compute_pred(user_id, item_id, user_to_review, book_to_review, review, sim)
+
+            print('Rating of user %d item %d. True: %f, Predict: %f'
+                  % (user_id, item_id, rating_true, rating_pred))
+            input('pause')
     # fill up rating
+    """
     rating = {}
     idx_i = idx_u = 0
     for user_id, user_review_arr in user_to_review.items():
@@ -159,6 +191,7 @@ def collab_filter(user_to_review, book_to_review, review):
         idx_u += 1
         if idx_u % 500 == 0:
             print("Complete user %d." % idx_u)
+    """
 
 if __name__ == '__main__':
     db = Reader()
@@ -166,4 +199,4 @@ if __name__ == '__main__':
     book_to_review_train, book_to_review_test, user_to_review_train, user_to_review_test = db.get_parsed_data()
 
     # test corr_sim
-    collab_filter(user_to_review_train, book_to_review_train, review)
+    collab_filter(user_to_review_train, book_to_review_train, review, user_to_review_test, book_to_review_test)
